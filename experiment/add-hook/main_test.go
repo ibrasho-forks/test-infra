@@ -145,7 +145,7 @@ func TestFindHook(t *testing.T) {
 		{
 			name: "return matched id",
 			hooks: []github.Hook{{
-				Id: number,
+				ID: number,
 				Config: github.HookConfig{
 					URL: goal,
 				},
