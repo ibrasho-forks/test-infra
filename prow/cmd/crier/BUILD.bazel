@@ -10,6 +10,7 @@ go_library(
         "//prow/client/clientset/versioned:go_default_library",
         "//prow/client/informers/externalversions:go_default_library",
         "//prow/config:go_default_library",
+        "//prow/config/secret:go_default_library",
         "//prow/crier:go_default_library",
         "//prow/flagutil:go_default_library",
         "//prow/gerrit/client:go_default_library",

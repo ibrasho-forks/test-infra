@@ -99,6 +99,7 @@ filegroup(
         "//prow/cmd/util:all-srcs",
         "//prow/commentpruner:all-srcs",
         "//prow/config:all-srcs",
+        "//prow/config/secret:all-srcs",
         "//prow/crier:all-srcs",
         "//prow/cron:all-srcs",
         "//prow/deck/jobs:all-srcs",
