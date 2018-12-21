@@ -24,12 +24,13 @@ import (
 	"sort"
 
 	"github.com/sirupsen/logrus"
-
 	"k8s.io/apimachinery/pkg/util/sets"
+
 	"k8s.io/test-infra/prow/github"
 	"k8s.io/test-infra/prow/pluginhelp"
 	"k8s.io/test-infra/prow/plugins"
 	"k8s.io/test-infra/prow/plugins/assign"
+	"k8s.io/test-infra/prow/repoowners"
 )
 
 const (
@@ -107,59 +108,91 @@ func (foc fallbackReviewersClient) LeafReviewers(path string) sets.String {
 type githubClient interface {
 	RequestReview(org, repo string, number int, logins []string) error
 	GetPullRequestChanges(org, repo string, number int) ([]github.PullRequestChange, error)
+	GetPullRequest(org, repo string, number int) (*github.PullRequest, error)
+}
+
+type repoownersClient interface {
+	LoadRepoOwners(org, repo, base string) (repoowners.RepoOwnerInterface, error)
 }
 
 func handlePullRequestEvent(pc plugins.Agent, pre github.PullRequestEvent) error {
-	if pre.Action != github.PullRequestActionOpened || assign.CCRegexp.MatchString(pre.PullRequest.Body) {
+	return handlePullRequest(
+		pc.GitHubClient,
+		pc.OwnersClient,
+		pc.Logger,
+		pc.PluginConfig.Blunderbuss,
+		pre.Action,
+		&pre.PullRequest,
+		&pre.Repo,
+	)
+}
+
+func handlePullRequest(ghc githubClient, roc repoownersClient, log *logrus.Entry, config plugins.Blunderbuss, action github.PullRequestEventAction, pr *github.PullRequest, repo *github.Repo) error {
+	if action != github.PullRequestActionOpened || assign.CCRegexp.MatchString(pr.Body) {
 		return nil
 	}
 
-	oc, err := pc.OwnersClient.LoadRepoOwners(pre.Repo.Owner.Login, pre.Repo.Name, pre.PullRequest.Base.Ref)
+	oc, err := roc.LoadRepoOwners(repo.Owner.Login, repo.Name, pr.Base.Ref)
 	if err != nil {
 		return fmt.Errorf("error loading RepoOwners: %v", err)
 	}
 
 	return handle(
-		pc.GitHubClient,
+		ghc,
 		oc,
-		pc.Logger,
-		pc.PluginConfig.Blunderbuss.ReviewerCount,
-		pc.PluginConfig.Blunderbuss.FileWeightCount,
-		pc.PluginConfig.Blunderbuss.MaxReviewerCount,
-		pc.PluginConfig.Blunderbuss.ExcludeApprovers,
-		&pre.Repo,
-		&pre.PullRequest,
+		log,
+		config.ReviewerCount,
+		config.FileWeightCount,
+		config.MaxReviewerCount,
+		config.ExcludeApprovers,
+		repo,
+		pr,
 	)
 }
 
 func handleGenericCommentEvent(pc plugins.Agent, ce github.GenericCommentEvent) error {
-	if ce.Action != github.GenericCommentActionCreated || !ce.IsPR || ce.IssueState == "closed" {
+	return handleGenericComment(
+		pc.GitHubClient,
+		pc.OwnersClient,
+		pc.Logger,
+		pc.PluginConfig.Blunderbuss,
+		ce.Action,
+		ce.IsPR,
+		ce.Number,
+		ce.IssueState,
+		&ce.Repo,
+		ce.Body,
+	)
+}
+
+func handleGenericComment(ghc githubClient, roc repoownersClient, log *logrus.Entry, config plugins.Blunderbuss, action github.GenericCommentEventAction, isPR bool, prNumber int, issueState string, repo *github.Repo, body string) error {
+	if action != github.GenericCommentActionCreated || !isPR || issueState == "closed" {
 		return nil
 	}
 
-	if !match.MatchString(ce.Body) {
+	if !match.MatchString(body) {
 		return nil
 	}
 
-	pr, err := pc.GitHubClient.GetPullRequest(ce.Repo.Owner.Login, ce.Repo.Name, ce.Number)
+	pr, err := ghc.GetPullRequest(repo.Owner.Login, repo.Name, prNumber)
 	if err != nil {
 		return fmt.Errorf("error loading PullRequest: %v", err)
 	}
 
-	oc, err := pc.OwnersClient.LoadRepoOwners(ce.Repo.Owner.Login, ce.Repo.Name, pr.Base.Ref)
+	oc, err := roc.LoadRepoOwners(repo.Owner.Login, repo.Name, pr.Base.Ref)
 	if err != nil {
 		return fmt.Errorf("error loading RepoOwners: %v", err)
 	}
 
 	return handle(
-		pc.GitHubClient,
+		ghc,
 		oc,
-		pc.Logger,
-		pc.PluginConfig.Blunderbuss.ReviewerCount,
-		pc.PluginConfig.Blunderbuss.FileWeightCount,
-		pc.PluginConfig.Blunderbuss.MaxReviewerCount,
-		pc.PluginConfig.Blunderbuss.ExcludeApprovers,
-		&ce.Repo,
+		log,
+		config.ReviewerCount,
+		config.FileWeightCount,
+		config.MaxReviewerCount,
+		config.ExcludeApprovers,
+		repo,
 		pr,
 	)
 }
